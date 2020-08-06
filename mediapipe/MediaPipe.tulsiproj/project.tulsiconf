@@ -20,7 +20,8 @@
     "mediapipe/examples/ios/iristrackinggpu",
     "mediapipe/examples/ios/multihandtrackinggpu",
     "mediapipe/examples/ios/objectdetectioncpu",
-    "mediapipe/examples/ios/objectdetectiongpu"
+    "mediapipe/examples/ios/objectdetectiongpu",
+    "mediapipe/examples/facial_search/ios"
   ],
   "projectName" : "Mediapipe",
   "workspaceRoot" : "../.."

@@ -13,7 +13,8 @@
     "mediapipe/examples/ios/iristrackinggpu/BUILD",
     "mediapipe/examples/ios/multihandtrackinggpu/BUILD",
     "mediapipe/examples/ios/objectdetectioncpu/BUILD",
-    "mediapipe/examples/ios/objectdetectiongpu/BUILD"
+    "mediapipe/examples/ios/objectdetectiongpu/BUILD",
+    "mediapipe/examples/facial_search/ios/BUILD"
   ],
   "buildTargets" : [
     "//mediapipe/examples/ios/edgedetectiongpu:EdgeDetectionGpuApp",
@@ -26,6 +27,7 @@
     "//mediapipe/examples/ios/multihandtrackinggpu:MultiHandTrackingGpuApp",
     "//mediapipe/examples/ios/objectdetectioncpu:ObjectDetectionCpuApp",
     "//mediapipe/examples/ios/objectdetectiongpu:ObjectDetectionGpuApp",
+    "//mediapipe/examples/facial_search/ios:FacialSearchGpuApp",
     "//mediapipe/objc:mediapipe_framework_ios"
   ],
   "optionSet" : {
