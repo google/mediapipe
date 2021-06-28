@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "mediapipe/calculators/tflite/tflite_converter_calculator.pb.h"
+#include "mediapipe/calculators/tflite/util.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/formats/image_frame.h"
 #include "mediapipe/framework/formats/matrix.h"
@@ -205,7 +206,7 @@ absl::Status TfLiteConverterCalculator::GetContract(CalculatorContract* cc) {
 #endif  // !MEDIAPIPE_DISABLE_GPU
 
   if (cc->Outputs().HasTag(kTensorsTag)) {
-    cc->Outputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensor>>();
+    cc->Outputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensorContainer>>();
   }
   if (cc->Outputs().HasTag(kTensorsGpuTag)) {
     cc->Outputs().Tag(kTensorsGpuTag).Set<std::vector<GpuTensor>>();
@@ -365,8 +366,9 @@ absl::Status TfLiteConverterCalculator::ProcessCPU(CalculatorContext* cc) {
       }
     }
 
-    auto output_tensors = absl::make_unique<std::vector<TfLiteTensor>>();
-    output_tensors->emplace_back(*tensor);
+    auto output_tensors = absl::make_unique<std::vector<TfLiteTensorContainer>>();
+    TfLiteTensorContainer tensor_out(*tensor);
+    output_tensors->emplace_back(tensor_out);
     cc->Outputs()
         .Tag(kTensorsTag)
         .Add(output_tensors.release(), cc->InputTimestamp());
@@ -397,8 +399,9 @@ absl::Status TfLiteConverterCalculator::ProcessCPU(CalculatorContext* cc) {
 
     MP_RETURN_IF_ERROR(CopyMatrixToTensor(matrix, tensor_ptr));
 
-    auto output_tensors = absl::make_unique<std::vector<TfLiteTensor>>();
-    output_tensors->emplace_back(*tensor);
+    auto output_tensors = absl::make_unique<std::vector<TfLiteTensorContainer>>();
+    TfLiteTensorContainer tensor_out(*tensor);
+    output_tensors->emplace_back(tensor_out);
     cc->Outputs()
         .Tag(kTensorsTag)
         .Add(output_tensors.release(), cc->InputTimestamp());
@@ -435,6 +438,8 @@ absl::Status TfLiteConverterCalculator::ProcessGPU(CalculatorContext* cc) {
       gpu_helper_.RunInGlContext([this, &output_tensors]() -> absl::Status {
         output_tensors->resize(1);
         {
+            // Thuan (2020-04-14: Fix bug output video not stable)
+            // - TODO Check buffer of tensor is not reference internal memory in GPU
           GpuTensor& tensor = output_tensors->at(0);
           MP_RETURN_IF_ERROR(CreateReadWriteShaderStorageBuffer<float>(
               gpu_data_out_->elements, &tensor));

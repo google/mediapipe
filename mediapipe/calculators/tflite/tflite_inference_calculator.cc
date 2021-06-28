@@ -19,6 +19,7 @@
 
 #include "absl/memory/memory.h"
 #include "mediapipe/calculators/tflite/tflite_inference_calculator.pb.h"
+#include "mediapipe/calculators/tflite/util.h"
 #include "mediapipe/framework/calculator_framework.h"
 #include "mediapipe/framework/port/ret_check.h"
 #include "mediapipe/util/tflite/config.h"
@@ -241,15 +242,15 @@ class TfLiteInferenceCalculator : public CalculatorBase {
   absl::Status LoadDelegate(CalculatorContext* cc);
   absl::Status InitTFLiteGPURunner(CalculatorContext* cc);
   absl::Status ProcessInputsCpu(CalculatorContext* cc,
-                                std::vector<TfLiteTensor>* output_tensors_cpu);
+                                std::vector<TfLiteTensorContainer>* output_tensors_cpu);
   absl::Status ProcessOutputsCpu(
       CalculatorContext* cc,
-      std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu);
+      std::unique_ptr<std::vector<TfLiteTensorContainer>> output_tensors_cpu);
   absl::Status ProcessInputsGpu(CalculatorContext* cc,
                                 std::vector<GpuTensor>* output_tensors_gpu);
   absl::Status ProcessOutputsGpu(
       CalculatorContext* cc,
-      std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu,
+      std::unique_ptr<std::vector<TfLiteTensorContainer>> output_tensors_cpu,
       std::unique_ptr<std::vector<GpuTensor>> output_tensors_gpu);
 
   absl::Status RunInContextIfNeeded(std::function<absl::Status(void)> f) {
@@ -329,9 +330,9 @@ absl::Status TfLiteInferenceCalculator::GetContract(CalculatorContract* cc) {
       << "Either model as side packet or model path in options is required.";
 
   if (cc->Inputs().HasTag(kTensorsTag))
-    cc->Inputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensor>>();
+    cc->Inputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensorContainer>>();
   if (cc->Outputs().HasTag(kTensorsTag))
-    cc->Outputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensor>>();
+    cc->Outputs().Tag(kTensorsTag).Set<std::vector<TfLiteTensorContainer>>();
 
   if (cc->Inputs().HasTag(kTensorsGpuTag))
     cc->Inputs().Tag(kTensorsGpuTag).Set<std::vector<GpuTensor>>();
@@ -420,7 +421,7 @@ absl::Status TfLiteInferenceCalculator::Process(CalculatorContext* cc) {
   return RunInContextIfNeeded([this, cc]() -> absl::Status {
     // 0. Declare outputs
     auto output_tensors_gpu = absl::make_unique<std::vector<GpuTensor>>();
-    auto output_tensors_cpu = absl::make_unique<std::vector<TfLiteTensor>>();
+    auto output_tensors_cpu = absl::make_unique<std::vector<TfLiteTensorContainer>>();
 
     // 1. Receive pre-processed tensor inputs.
     if (gpu_input_) {
@@ -507,16 +508,16 @@ absl::Status TfLiteInferenceCalculator::Close(CalculatorContext* cc) {
 // Calculator Auxiliary Section
 
 absl::Status TfLiteInferenceCalculator::ProcessInputsCpu(
-    CalculatorContext* cc, std::vector<TfLiteTensor>* output_tensors_cpu) {
+    CalculatorContext* cc, std::vector<TfLiteTensorContainer>* output_tensors_cpu) {
   if (cc->Inputs().Tag(kTensorsTag).IsEmpty()) {
     return absl::OkStatus();
   }
   // Read CPU input into tensors.
   const auto& input_tensors =
-      cc->Inputs().Tag(kTensorsTag).Get<std::vector<TfLiteTensor>>();
+      cc->Inputs().Tag(kTensorsTag).Get<std::vector<TfLiteTensorContainer>>();
   RET_CHECK_GT(input_tensors.size(), 0);
   for (int i = 0; i < input_tensors.size(); ++i) {
-    const TfLiteTensor* input_tensor = &input_tensors[i];
+    const TfLiteTensor* input_tensor = &(input_tensors[i].getTensor());
     RET_CHECK(input_tensor->data.raw);
     if (use_quantized_tensors_) {
       const uint8* input_tensor_buffer = input_tensor->data.uint8;
@@ -608,12 +609,16 @@ absl::Status TfLiteInferenceCalculator::ProcessInputsGpu(
 
 absl::Status TfLiteInferenceCalculator::ProcessOutputsCpu(
     CalculatorContext* cc,
-    std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu) {
+    std::unique_ptr<std::vector<TfLiteTensorContainer>> output_tensors_cpu) {
   // Output result tensors (CPU).
   const auto& tensor_indexes = interpreter_->outputs();
   for (int i = 0; i < tensor_indexes.size(); ++i) {
     TfLiteTensor* tensor = interpreter_->tensor(tensor_indexes[i]);
-    output_tensors_cpu->emplace_back(*tensor);
+    // Thuan (2020-04-14: Fix bug output video not stable): Using TfLiteTensorContainer for make new memory for data in tensor
+    TfLiteTensorContainer tensor_out(*tensor);
+    VLOG(2) << "INFERENCE interpreter_=" << interpreter_.get() << ";InputTimestamp=" << cc->InputTimestamp()
+              << " has output tensor data address=" << tensor->data.f ;
+    output_tensors_cpu->emplace_back(tensor_out);
   }
   cc->Outputs()
       .Tag(kTensorsTag)
@@ -624,7 +629,7 @@ absl::Status TfLiteInferenceCalculator::ProcessOutputsCpu(
 
 absl::Status TfLiteInferenceCalculator::ProcessOutputsGpu(
     CalculatorContext* cc,
-    std::unique_ptr<std::vector<TfLiteTensor>> output_tensors_cpu,
+    std::unique_ptr<std::vector<TfLiteTensorContainer>> output_tensors_cpu,
     std::unique_ptr<std::vector<GpuTensor>> output_tensors_gpu) {
   if (use_advanced_gpu_api_) {
 #if MEDIAPIPE_TFLITE_GL_INFERENCE
@@ -641,7 +646,8 @@ absl::Status TfLiteInferenceCalculator::ProcessOutputsGpu(
         std::vector<float> gpu_data(tensor->bytes / sizeof(float));
         MP_RETURN_IF_ERROR(gpu_data_out_[i]->buffer.Read(
             absl::MakeSpan(tensor->data.f, tensor->bytes)));
-        output_tensors_cpu->emplace_back(*tensor);
+        TfLiteTensorContainer tensor_out(*tensor);
+        output_tensors_cpu->emplace_back(tensor_out);
       }
       // Output result tensors (CPU).
       cc->Outputs()
